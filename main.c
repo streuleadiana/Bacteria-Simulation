@@ -4,6 +4,11 @@
 #include <sys/time.h>
 #include <mpi.h>
 
+/*
+Compilare:
+gcc -Wall -o prog main.c -lmsmpi
+mpiexec -n 4 prog input.txt output.txt
+*/
 int count_neighbors(char *grid, int r, int c, int rows, int cols) {
     int count = 0;
     for (int i = r - 1; i <= r + 1; i++) {
@@ -61,6 +66,22 @@ int main(int argc, char *argv[])
     MPI_Bcast(&N_rows, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&M_cols, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&Gen_count, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    int *sendcounts = (int *)malloc(size * sizeof(int));
+    int *displs = (int *)malloc(size * sizeof(int));
+
+    int rows_per_proc = N_rows / size;
+    int remainder = N_rows % size;
+    int current_displ = 0;
+
+    for (int i = 0; i < size; i++) {
+        int rows = rows_per_proc + (i < remainder ? 1 : 0);
+        sendcounts[i] = rows * M_cols;
+        displs[i] = current_displ;
+        current_displ += sendcounts[i];
+    }
+
+    int local_rows = sendcounts[rank] / M_cols;
 
     MPI_Finalize();
     return 0;
