@@ -82,7 +82,6 @@ int main(int argc, char *argv[])
     }
 
     int local_rows = sendcounts[rank] / M_cols;
-
     MPI_Finalize();
     return 0;
 }
