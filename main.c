@@ -9,6 +9,7 @@ Compilare:
 gcc -Wall -o prog main.c -lmsmpi
 mpiexec -n 4 prog input.txt output.txt
 */
+
 int count_neighbors(char *grid, int r, int c, int rows, int cols) {
     int count = 0;
     for (int i = r - 1; i <= r + 1; i++) {
@@ -37,7 +38,8 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     if (argc != 3) {
-        if (rank == 0) printf("Usage: %s <input_file> <generations>\n", argv[0]);
+        if (rank == 0)
+            printf("Usage: %s <input_file> <generations>\n", argv[0]);
         MPI_Finalize();
         return 1;
     }
@@ -56,8 +58,9 @@ int main(int argc, char *argv[])
         for (int i = 0; i < N_rows; i++) {
             for (int j = 0; j < M_cols; j++) {
                 char c;
-                fscanf(f, "%c", &c);
-                while(c == '\n' || c == '\r') fscanf(f, "%c", &c);
+                do {
+                    if (fscanf(f, "%c", &c) != 1) break;
+                } while (c == '\n' || c == '\r' || c == ' ');
                 global_grid[i * M_cols + j] = c;
             }
         }
@@ -75,13 +78,92 @@ int main(int argc, char *argv[])
     int current_displ = 0;
 
     for (int i = 0; i < size; i++) {
-        int rows = rows_per_proc + (i < remainder ? 1 : 0);
+        int rows;
+        if (i < remainder) {
+            rows = rows_per_proc + 1;
+        } else {
+            rows = rows_per_proc;
+        }
         sendcounts[i] = rows * M_cols;
         displs[i] = current_displ;
         current_displ += sendcounts[i];
     }
 
     int local_rows = sendcounts[rank] / M_cols;
+
+    char *local_grid = (char *)malloc((local_rows + 2) * M_cols * sizeof(char));
+    char *next_grid  = (char *)malloc((local_rows + 2) * M_cols * sizeof(char));
+
+    char *actual_data_ptr = local_grid + M_cols;
+
+    MPI_Scatterv(global_grid, sendcounts, displs, MPI_CHAR,
+                 actual_data_ptr, sendcounts[rank], MPI_CHAR,
+                 0, MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+    double start_time = MPI_Wtime();
+
+    for (int gen = 0; gen < Gen_count; gen++) {
+
+        int top_neighbor;
+        if (rank == 0) {
+            top_neighbor = MPI_PROC_NULL;
+        } else {
+            top_neighbor = rank - 1;
+        }
+
+        int bottom_neighbor;
+        if (rank == size - 1) {
+            bottom_neighbor = MPI_PROC_NULL;
+        } else {
+            bottom_neighbor = rank + 1;
+        }
+
+        MPI_Sendrecv(local_grid + M_cols, M_cols, MPI_CHAR, top_neighbor, 0,
+                     local_grid + (local_rows + 1) * M_cols, M_cols, MPI_CHAR, bottom_neighbor, 0,
+                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        MPI_Sendrecv(local_grid + local_rows * M_cols, M_cols, MPI_CHAR, bottom_neighbor, 1,
+                     local_grid, M_cols, MPI_CHAR, top_neighbor, 1,
+                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        for (int i = 1; i <= local_rows; i++) {
+            for (int j = 0; j < M_cols; j++) {
+
+                int neighbors = count_neighbors(local_grid, i, j, local_rows + 2, M_cols);
+
+                char current_cell = local_grid[i * M_cols + j];
+                char new_cell = '.';
+
+                if (current_cell == '.') {
+                    if (neighbors == 3) {
+                        new_cell = 'X';
+                    } else {
+                        new_cell = '.';
+                    }
+                } else {
+                    if (neighbors < 2 || neighbors > 3) {
+                        new_cell = '.';
+                    } else {
+                        new_cell = 'X';
+                    }
+                }
+
+                next_grid[i * M_cols + j] = new_cell;
+            }
+        }
+
+        char *tmp = local_grid;
+        local_grid = next_grid;
+        next_grid = tmp;
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    double end_time = MPI_Wtime();
+
+    if (rank == 0) {
+        printf("Execution time for %d processes: %f seconds\n", size, end_time - start_time);
+    }
+
     MPI_Finalize();
     return 0;
 }
