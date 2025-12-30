@@ -164,6 +164,40 @@ int main(int argc, char *argv[])
         printf("Execution time for %d processes: %f seconds\n", size, end_time - start_time);
     }
 
+    if (rank == 0) {
+        final_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
+    }
+
+    actual_data_ptr = local_grid + M_cols;
+
+    MPI_Gatherv(actual_data_ptr, sendcounts[rank], MPI_CHAR,
+                final_grid, sendcounts, displs, MPI_CHAR,
+                0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        FILE *f_out = fopen(argv[2], "w");
+        if (!f_out) {
+            perror("Error opening output file");
+        } else {
+            fprintf(f_out, "%d %d %d\n", N_rows, M_cols, Gen_count);
+            for (int i = 0; i < N_rows; i++) {
+                for (int j = 0; j < M_cols; j++) {
+                    fprintf(f_out, "%c", final_grid[i * M_cols + j]);
+                }
+                fprintf(f_out, "\n");
+            }
+            fclose(f_out);
+        }
+
+        free(global_grid);
+        free(final_grid);
+    }
+
+    free(local_grid);
+    free(next_grid);
+    free(sendcounts);
+    free(displs);
+
     MPI_Finalize();
     return 0;
 }
