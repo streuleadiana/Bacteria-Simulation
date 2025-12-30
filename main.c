@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 
     if (argc != 3) {
         if (rank == 0)
-            printf("Usage: %s <input_file> <generations>\n", argv[0]);
+            printf("Usage: %s <input_file> <output_file>\n", argv[0]);
         MPI_Finalize();
         return 1;
     }
@@ -50,11 +50,16 @@ int main(int argc, char *argv[])
             perror("Error opening input file");
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
-        fscanf(f, "%d %d %d", &N_rows, &M_cols, &Gen_count);
+        if (fscanf(f, "%d %d %d", &N_rows, &M_cols, &Gen_count) != 3) {
+            printf("Error reading file header.\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
 
-        char dummy;
-        fscanf(f, "%c", &dummy);
         global_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
+        if (!global_grid) {
+            fprintf(stderr, "Memory error\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
         for (int i = 0; i < N_rows; i++) {
             for (int j = 0; j < M_cols; j++) {
                 char c;
@@ -164,11 +169,11 @@ int main(int argc, char *argv[])
         printf("Execution time for %d processes: %f seconds\n", size, end_time - start_time);
     }
 
+    actual_data_ptr = local_grid + M_cols;
+
     if (rank == 0) {
         final_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
     }
-
-    actual_data_ptr = local_grid + M_cols;
 
     MPI_Gatherv(actual_data_ptr, sendcounts[rank], MPI_CHAR,
                 final_grid, sendcounts, displs, MPI_CHAR,
