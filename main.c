@@ -7,7 +7,7 @@
 /*
 Compilare:
 gcc -Wall -o prog main.c -lmsmpi
-mpiexec -n 4 prog input.txt output.txt
+mpiexec -n 4 prog bacteria*NR*.txt output.txt
 */
 
 int count_neighbors(char *grid, int r, int c, int rows, int cols) {
@@ -26,12 +26,45 @@ int count_neighbors(char *grid, int r, int c, int rows, int cols) {
     return count;
 }
 
+void run_serial_simulation(char *initial_grid, char *result_grid, int rows, int cols, int gens) {
+    char *current = (char *)malloc(rows * cols * sizeof(char));
+    char *next = (char *)malloc(rows * cols * sizeof(char));
+
+    memcpy(current, initial_grid, rows * cols * sizeof(char));
+
+    for (int g = 0; g < gens; g++) {
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                int neighbors = count_neighbors(current, i, j, rows, cols);
+                char current_cell = current[i * cols + j];
+                char new_cell = '.';
+                if (current_cell == 'X') {
+                    if (neighbors == 2 || neighbors == 3) new_cell = 'X';
+                } else {
+                    if (neighbors == 3) new_cell = 'X';
+                }
+                next[i * cols + j] = new_cell;
+            }
+        }
+        char *tmp = current;
+        current = next;
+        next = tmp;
+    }
+
+    memcpy(result_grid, current, rows * cols * sizeof(char));
+
+    free(current);
+    free(next);
+}
+
+
 int main(int argc, char *argv[])
 {
     int rank, size;
     int N_rows, M_cols, Gen_count;
     char *global_grid = NULL;
     char *final_grid = NULL;
+    char *serial_result_grid = NULL;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -70,6 +103,9 @@ int main(int argc, char *argv[])
             }
         }
         fclose(f);
+
+        final_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
+        serial_result_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
     }
     MPI_Bcast(&N_rows, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&M_cols, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -180,6 +216,21 @@ int main(int argc, char *argv[])
                 0, MPI_COMM_WORLD);
 
     if (rank == 0) {
+        run_serial_simulation(global_grid, serial_result_grid, N_rows, M_cols, Gen_count);
+        int match = 1;
+        for(int i=0; i<N_rows * M_cols; i++) {
+            if (final_grid[i] != serial_result_grid[i]) {
+                match = 0;
+                printf("NOT MATCH at index %d! Parallel: %c, Serial: %c\n", i, final_grid[i], serial_result_grid[i]);
+                break;
+            }
+        }
+        if (match) {
+            printf("SUCCESS: Serial and Parallel results MATCH!\n");
+        } else {
+            printf("FAILURE: Results do not match!\n");
+        }
+
         FILE *f_out = fopen(argv[2], "w");
         if (!f_out) {
             perror("Error opening output file");
