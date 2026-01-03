@@ -30,6 +30,7 @@ void run_serial_simulation(char *initial_grid, char *result_grid, int rows, int 
     char *current = (char *)malloc(rows * cols * sizeof(char));
     char *next = (char *)malloc(rows * cols * sizeof(char));
 
+    memset(next, '.', rows * cols * sizeof(char));
     memcpy(current, initial_grid, rows * cols * sizeof(char));
 
     for (int g = 0; g < gens; g++) {
@@ -135,6 +136,9 @@ int main(int argc, char *argv[])
     char *local_grid = (char *)malloc((local_rows + 2) * M_cols * sizeof(char));
     char *next_grid  = (char *)malloc((local_rows + 2) * M_cols * sizeof(char));
 
+    memset(local_grid, '.', (local_rows + 2) * M_cols * sizeof(char));
+    memset(next_grid,  '.', (local_rows + 2) * M_cols * sizeof(char));
+
     char *actual_data_ptr = local_grid + M_cols;
 
     MPI_Scatterv(global_grid, sendcounts, displs, MPI_CHAR,
@@ -201,22 +205,25 @@ int main(int argc, char *argv[])
     MPI_Barrier(MPI_COMM_WORLD);
     double end_time = MPI_Wtime();
 
-    if (rank == 0) {
-        printf("Execution time for %d processes: %f seconds\n", size, end_time - start_time);
-    }
-
     actual_data_ptr = local_grid + M_cols;
-
-    if (rank == 0) {
-        final_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
-    }
 
     MPI_Gatherv(actual_data_ptr, sendcounts[rank], MPI_CHAR,
                 final_grid, sendcounts, displs, MPI_CHAR,
                 0, MPI_COMM_WORLD);
 
     if (rank == 0) {
+        double serial_start = MPI_Wtime();
         run_serial_simulation(global_grid, serial_result_grid, N_rows, M_cols, Gen_count);
+        double serial_end = MPI_Wtime();
+        double serial_duration = serial_end - serial_start;
+        printf("Serial Execution (P=1): %f seconds\n", serial_duration);
+
+        double parallel_duration = end_time - start_time;
+        printf("Parallel Execution (P=%d): %f seconds\n", size, parallel_duration);
+
+        double speedup = serial_duration / parallel_duration;
+        printf("Speedup: %.2f\n", speedup);
+
         int match = 1;
         for(int i=0; i<N_rows * M_cols; i++) {
             if (final_grid[i] != serial_result_grid[i]) {
