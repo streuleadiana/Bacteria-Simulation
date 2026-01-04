@@ -30,6 +30,13 @@ void run_serial_simulation(char *initial_grid, char *result_grid, int rows, int 
     char *current = (char *)malloc(rows * cols * sizeof(char));
     char *next = (char *)malloc(rows * cols * sizeof(char));
 
+    if (!current || !next) {
+        fprintf(stderr, "Memory allocation error in serial check!\n");
+        if(current) free(current);
+        if(next) free(next);
+        return;
+    }
+
     memset(next, '.', rows * cols * sizeof(char));
     memcpy(current, initial_grid, rows * cols * sizeof(char));
 
@@ -81,25 +88,56 @@ int main(int argc, char *argv[])
     if (rank==0) {
         FILE *f = fopen(argv[1], "r");
         if (!f) {
-            perror("Error opening input file");
+            printf("Error opening input file: %s\n", argv[1]);
+            fflush(stdout);
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         if (fscanf(f, "%d %d %d", &N_rows, &M_cols, &Gen_count) != 3) {
             printf("Error reading file header.\n");
+            fflush(stdout);
+            fclose(f);
             MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+        if (N_rows <= 0 || M_cols <= 0 || Gen_count < 0) {
+            printf("Invalid input data! Rows/Cols must be positive and Gens >= 0.\n");
+            fflush(stdout);
+            fclose(f);
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+        if (size > N_rows) {
+            printf("Too many processes for too few rows!\n");
+            fflush(stdout); fclose(f); MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
         global_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
         if (!global_grid) {
             fprintf(stderr, "Memory error\n");
+            fflush(stdout);
+            fclose(f);
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         for (int i = 0; i < N_rows; i++) {
             for (int j = 0; j < M_cols; j++) {
                 char c;
+                int ret;
                 do {
-                    if (fscanf(f, "%c", &c) != 1) break;
-                } while (c == '\n' || c == '\r' || c == ' ');
+                    ret = fscanf(f, "%c", &c);
+                    if (ret == EOF) {
+                        printf("File ended too early\n");
+                        fflush(stdout);
+                        free(global_grid);
+                        fclose(f);
+                        MPI_Abort(MPI_COMM_WORLD, 1);
+                    }
+                } while (c == '\n' || c == '\r' || c == ' ' || c == '\t');
+
+                if (c != 'X' && c != '.') {
+                    printf("Invalid character '%c' at row %d, col %d. Only 'X' and '.' are accepted.\n", c, i, j);
+                    fflush(stdout);
+                    free(global_grid);
+                    fclose(f);
+                    MPI_Abort(MPI_COMM_WORLD, 1);
+                }
                 global_grid[i * M_cols + j] = c;
             }
         }
@@ -107,13 +145,27 @@ int main(int argc, char *argv[])
 
         final_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
         serial_result_grid = (char *)malloc(N_rows * M_cols * sizeof(char));
+        if (!final_grid || !serial_result_grid) {
+            printf("Insufficient memory for final grids.\n");
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
     }
     MPI_Bcast(&N_rows, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&M_cols, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&Gen_count, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
+    if (N_rows <= 0 || M_cols <= 0) {
+        MPI_Finalize();
+        return 1;
+    }
+
     int *sendcounts = (int *)malloc(size * sizeof(int));
     int *displs = (int *)malloc(size * sizeof(int));
+
+    if (!sendcounts || !displs) {
+        printf("Insufficient memory for rank %d.\n", rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
 
     int rows_per_proc = N_rows / size;
     int remainder = N_rows % size;
@@ -135,6 +187,11 @@ int main(int argc, char *argv[])
 
     char *local_grid = (char *)malloc((local_rows + 2) * M_cols * sizeof(char));
     char *next_grid  = (char *)malloc((local_rows + 2) * M_cols * sizeof(char));
+
+    if (!local_grid || !next_grid) {
+        printf("Insufficient memory for local_grid to rank %d.\n", rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
 
     memset(local_grid, '.', (local_rows + 2) * M_cols * sizeof(char));
     memset(next_grid,  '.', (local_rows + 2) * M_cols * sizeof(char));
@@ -240,7 +297,7 @@ int main(int argc, char *argv[])
 
         FILE *f_out = fopen(argv[2], "w");
         if (!f_out) {
-            perror("Error opening output file");
+            printf("Error opening output file");
         } else {
             fprintf(f_out, "%d %d %d\n", N_rows, M_cols, Gen_count);
             for (int i = 0; i < N_rows; i++) {
@@ -254,6 +311,7 @@ int main(int argc, char *argv[])
 
         free(global_grid);
         free(final_grid);
+        free(serial_result_grid);
     }
 
     free(local_grid);
