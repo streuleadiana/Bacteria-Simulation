@@ -15,8 +15,8 @@ int count_neighbors(char *grid, int r, int c, int rows, int cols) {
     int count = 0;
     for (int i = r - 1; i <= r + 1; i++) {
         for (int j = c - 1; j <= c + 1; j++) {
-            if (i == r && j == c) continue;
-
+            if (i == r && j == c)
+                continue;
             if (i >= 0 && i < rows && j >= 0 && j < cols) {
                 if (grid[i * cols + j] == 'X') {
                     count++;
@@ -116,7 +116,9 @@ int main(int argc, char *argv[])
         }
         if (size > N_rows) {
             printf("Too many processes for too few rows!\n");
-            fflush(stdout); fclose(f); MPI_Abort(MPI_COMM_WORLD, 1);
+            fflush(stdout);
+            fclose(f);
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
         // Allocate and read global grid
@@ -301,6 +303,7 @@ int main(int argc, char *argv[])
         double serial_start = MPI_Wtime();
         run_serial_simulation(global_grid, serial_result_grid, N_rows, M_cols, Gen_count);
         double serial_end = MPI_Wtime();
+
         // Print Statistics
         double serial_duration = serial_end - serial_start;
         printf("Serial Execution (P=1): %f seconds\n", serial_duration);
